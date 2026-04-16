@@ -120,7 +120,12 @@ const presets = {
   },
 };
 
-let activePreset = presets.overview;
+const activePreset = {
+  position: presets.overview.position.clone(),
+  target: presets.overview.target.clone(),
+};
+
+let isAutoRotating = true;
 
 function createOrbitGuide(radius, tilt) {
   const curve = new THREE.EllipseCurve(0, 0, radius, radius * 0.68, 0, Math.PI * 2, false, 0);
@@ -146,9 +151,19 @@ function buildNodes(count) {
   while (orbitGroup.children.length > 4) {
     const child = orbitGroup.children[orbitGroup.children.length - 1];
     orbitGroup.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  }
+
+  for (let i = pickables.length - 1; i >= 0; i--) {
+    if (pickables[i].userData.id && pickables[i].userData.id.startsWith("NODE-")) {
+      pickables.splice(i, 1);
+    }
   }
 
   orbitNodes = [];
+  selectedNode = null;
+  hoveredNode = null;
 
   for (let i = 0; i < count; i += 1) {
     const radius = 3.8 + (i % 5) * 1.15;
@@ -206,8 +221,9 @@ const focusPoint = new THREE.Vector3();
 const clock = new THREE.Clock();
 
 function updatePointer(event) {
-  pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
 window.addEventListener("pointermove", updatePointer);
@@ -230,13 +246,16 @@ viewButtons.forEach((button) => {
   button.addEventListener("click", () => {
     viewButtons.forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
-    activePreset = presets[button.dataset.view];
+    const preset = presets[button.dataset.view];
+    activePreset.position.copy(preset.position);
+    activePreset.target.copy(preset.target);
   });
 });
 
 rotateToggle.addEventListener("click", () => {
-  controls.autoRotate = !controls.autoRotate;
-  rotateToggle.textContent = controls.autoRotate ? "开启" : "关闭";
+  isAutoRotating = !isAutoRotating;
+  controls.autoRotate = isAutoRotating;
+  rotateToggle.textContent = isAutoRotating ? "开启" : "关闭";
 });
 
 densityRange.addEventListener("input", (event) => {
@@ -264,23 +283,25 @@ window.addEventListener("resize", resizeRenderer);
 function tick() {
   const elapsed = clock.getElapsedTime();
 
-  coreMesh.rotation.x = elapsed * 0.25;
-  coreMesh.rotation.y = elapsed * 0.46;
-  shellRing.rotation.z = elapsed * 0.18;
-  shellRingB.rotation.y = elapsed * 0.22;
-  stars.rotation.y = elapsed * 0.015;
+  if (isAutoRotating) {
+    coreMesh.rotation.x = elapsed * 0.25;
+    coreMesh.rotation.y = elapsed * 0.46;
+    shellRing.rotation.z = elapsed * 0.18;
+    shellRingB.rotation.y = elapsed * 0.22;
+    stars.rotation.y = elapsed * 0.015;
 
-  orbitNodes.forEach((node, index) => {
-    const { radius, speed, angle, lift } = node.userData;
-    const orbitAngle = elapsed * speed + angle;
-    node.position.set(
-      Math.cos(orbitAngle) * radius,
-      Math.sin(orbitAngle * 1.7 + index) * 0.42 + lift,
-      Math.sin(orbitAngle) * radius * 0.68
-    );
+    orbitNodes.forEach((node, index) => {
+      const { radius, speed, angle, lift } = node.userData;
+      const orbitAngle = elapsed * speed + angle;
+      node.position.set(
+        Math.cos(orbitAngle) * radius,
+        Math.sin(orbitAngle * 1.7 + index) * 0.42 + lift,
+        Math.sin(orbitAngle) * radius * 0.68
+      );
 
-    node.scale.setScalar(1 + Math.sin(elapsed * 4 + index) * 0.08);
-  });
+      node.scale.setScalar(1 + Math.sin(elapsed * 4 + index) * 0.08);
+    });
+  }
 
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(pickables, false)[0];
