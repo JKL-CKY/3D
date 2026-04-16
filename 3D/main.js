@@ -120,7 +120,15 @@ const presets = {
   },
 };
 
-let activePreset = presets.overview;
+function getPreset(name) {
+  const p = presets[name];
+  return {
+    position: p.position.clone(),
+    target: p.target.clone(),
+  };
+}
+
+let activePreset = getPreset("overview");
 
 function createOrbitGuide(radius, tilt) {
   const curve = new THREE.EllipseCurve(0, 0, radius, radius * 0.68, 0, Math.PI * 2, false, 0);
@@ -143,12 +151,16 @@ for (let i = 0; i < 4; i += 1) {
 }
 
 function buildNodes(count) {
-  while (orbitGroup.children.length > 4) {
-    const child = orbitGroup.children[orbitGroup.children.length - 1];
-    orbitGroup.remove(child);
-  }
+  orbitNodes.forEach((node) => {
+    orbitGroup.remove(node);
+    node.geometry.dispose();
+    node.material.dispose();
+  });
 
+  pickables.length = 0;
   orbitNodes = [];
+  selectedNode = null;
+  hoveredNode = null;
 
   for (let i = 0; i < count; i += 1) {
     const radius = 3.8 + (i % 5) * 1.15;
@@ -206,8 +218,9 @@ const focusPoint = new THREE.Vector3();
 const clock = new THREE.Clock();
 
 function updatePointer(event) {
-  pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
 window.addEventListener("pointermove", updatePointer);
@@ -230,7 +243,7 @@ viewButtons.forEach((button) => {
   button.addEventListener("click", () => {
     viewButtons.forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
-    activePreset = presets[button.dataset.view];
+    activePreset = getPreset(button.dataset.view);
   });
 });
 
@@ -264,23 +277,25 @@ window.addEventListener("resize", resizeRenderer);
 function tick() {
   const elapsed = clock.getElapsedTime();
 
-  coreMesh.rotation.x = elapsed * 0.25;
-  coreMesh.rotation.y = elapsed * 0.46;
-  shellRing.rotation.z = elapsed * 0.18;
-  shellRingB.rotation.y = elapsed * 0.22;
-  stars.rotation.y = elapsed * 0.015;
+  if (controls.autoRotate) {
+    coreMesh.rotation.x = elapsed * 0.25;
+    coreMesh.rotation.y = elapsed * 0.46;
+    shellRing.rotation.z = elapsed * 0.18;
+    shellRingB.rotation.y = elapsed * 0.22;
+    stars.rotation.y = elapsed * 0.015;
 
-  orbitNodes.forEach((node, index) => {
-    const { radius, speed, angle, lift } = node.userData;
-    const orbitAngle = elapsed * speed + angle;
-    node.position.set(
-      Math.cos(orbitAngle) * radius,
-      Math.sin(orbitAngle * 1.7 + index) * 0.42 + lift,
-      Math.sin(orbitAngle) * radius * 0.68
-    );
+    orbitNodes.forEach((node, index) => {
+      const { radius, speed, angle, lift } = node.userData;
+      const orbitAngle = elapsed * speed + angle;
+      node.position.set(
+        Math.cos(orbitAngle) * radius,
+        Math.sin(orbitAngle * 1.7 + index) * 0.42 + lift,
+        Math.sin(orbitAngle) * radius * 0.68
+      );
 
-    node.scale.setScalar(1 + Math.sin(elapsed * 4 + index) * 0.08);
-  });
+      node.scale.setScalar(1 + Math.sin(elapsed * 4 + index) * 0.08);
+    });
+  }
 
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(pickables, false)[0];
@@ -297,10 +312,13 @@ function tick() {
   }
 
   const desiredTarget = selectedNode ? focusPoint.copy(selectedNode.position) : activePreset.target;
-  const wobbleTarget = new THREE.Vector3(Math.sin(elapsed * 0.22) * 0.65, Math.cos(elapsed * 0.18) * 0.22, 0);
-  const desiredPosition = activePreset.position.lerp(wobbleTarget, 0.012);
 
-  camera.position.lerp(desiredPosition, 0.045);
+  if (controls.autoRotate) {
+    const wobbleTarget = new THREE.Vector3(Math.sin(elapsed * 0.22) * 0.65, Math.cos(elapsed * 0.18) * 0.22, 0);
+    const desiredPosition = activePreset.position.clone().lerp(wobbleTarget, 0.012);
+    camera.position.lerp(desiredPosition, 0.045);
+  }
+
   controls.target.lerp(desiredTarget, 0.08);
   controls.update();
 
