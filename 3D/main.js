@@ -35,8 +35,8 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.minDistance = 5;
 controls.maxDistance = 20;
-controls.autoRotate = true;
-controls.autoRotateSpeed = 0.55;
+controls.autoRotate = false;
+controls.enableAutoRotate = true;
 
 const ambientLight = new THREE.AmbientLight(0x8fc9ff, 1.2);
 scene.add(ambientLight);
@@ -146,9 +146,17 @@ function buildNodes(count) {
   while (orbitGroup.children.length > 4) {
     const child = orbitGroup.children[orbitGroup.children.length - 1];
     orbitGroup.remove(child);
+    child.geometry?.dispose();
+    child.material?.dispose();
   }
 
+  pickables.length = 0;
   orbitNodes = [];
+  hoveredNode = null;
+  if (selectedNode) {
+    selectedNode = null;
+    setInfo(null);
+  }
 
   for (let i = 0; i < count; i += 1) {
     const radius = 3.8 + (i % 5) * 1.15;
@@ -206,8 +214,9 @@ const focusPoint = new THREE.Vector3();
 const clock = new THREE.Clock();
 
 function updatePointer(event) {
-  pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
 window.addEventListener("pointermove", updatePointer);
@@ -231,12 +240,14 @@ viewButtons.forEach((button) => {
     viewButtons.forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     activePreset = presets[button.dataset.view];
+    camera.position.copy(activePreset.position);
+    controls.target.copy(activePreset.target);
   });
 });
 
 rotateToggle.addEventListener("click", () => {
-  controls.autoRotate = !controls.autoRotate;
-  rotateToggle.textContent = controls.autoRotate ? "开启" : "关闭";
+  controls.enableAutoRotate = !controls.enableAutoRotate;
+  rotateToggle.textContent = controls.enableAutoRotate ? "开启" : "关闭";
 });
 
 densityRange.addEventListener("input", (event) => {
@@ -296,12 +307,20 @@ function tick() {
     document.body.style.cursor = "default";
   }
 
-  const desiredTarget = selectedNode ? focusPoint.copy(selectedNode.position) : activePreset.target;
-  const wobbleTarget = new THREE.Vector3(Math.sin(elapsed * 0.22) * 0.65, Math.cos(elapsed * 0.18) * 0.22, 0);
-  const desiredPosition = activePreset.position.lerp(wobbleTarget, 0.012);
+  if (selectedNode) {
+    const desiredTarget = focusPoint.copy(selectedNode.position);
+    controls.target.lerp(desiredTarget, 0.08);
+  }
 
-  camera.position.lerp(desiredPosition, 0.045);
-  controls.target.lerp(desiredTarget, 0.08);
+  if (controls.enableAutoRotate) {
+    const wobbleTarget = new THREE.Vector3(Math.sin(elapsed * 0.22) * 0.65, Math.cos(elapsed * 0.18) * 0.22, 0);
+    const desiredPosition = activePreset.position.clone().lerp(wobbleTarget, 0.012);
+    camera.position.lerp(desiredPosition, 0.045);
+    if (!selectedNode) {
+      controls.target.lerp(activePreset.target.clone(), 0.08);
+    }
+  }
+
   controls.update();
 
   updateMetrics(elapsed);
